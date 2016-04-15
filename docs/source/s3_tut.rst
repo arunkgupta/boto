@@ -18,7 +18,7 @@ There are two ways to do this in boto.  The first is:
 
 At this point the variable conn will point to an S3Connection object.  In
 this example, the AWS access key and AWS secret key are passed in to the
-method explicitely.  Alternatively, you can set the environment variables:
+method explicitly.  Alternatively, you can set the environment variables:
 
 * `AWS_ACCESS_KEY_ID` - Your AWS Access Key ID
 * `AWS_SECRET_ACCESS_KEY` - Your AWS Secret Access Key
@@ -81,6 +81,7 @@ boto.s3.connection module, like this::
     APSoutheast2
     DEFAULT
     EU
+    EUCentral1
     SAEast
     USWest
     USWest2
@@ -96,7 +97,7 @@ bucket in that location.  For example::
 will create the bucket in the EU region (assuming the name is available).
 
 Storing Data
-----------------
+------------
 
 Once you have a bucket, presumably you will want to store some data
 in it.  S3 doesn't care what kind of information you store in your objects
@@ -190,12 +191,12 @@ to be taken. The example below makes use of the FileChunkIO module, so
 
     # Use a chunk size of 50 MiB (feel free to change this)
     >>> chunk_size = 52428800
-    >>> chunk_count = int(math.ceil(source_size / chunk_size))
+    >>> chunk_count = int(math.ceil(source_size / float(chunk_size)))
 
     # Send the file parts, using FileChunkIO to create a file-like object
     # that points to a certain byte range within the original file. We
     # set bytes to never exceed the original file size.
-    >>> for i in range(chunk_count + 1):
+    >>> for i in range(chunk_count):
     >>>     offset = chunk_size * i
     >>>     bytes = min(chunk_size, source_size - offset)
     >>>     with FileChunkIO(source_path, 'r', offset=offset,

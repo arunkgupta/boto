@@ -39,7 +39,7 @@ import hmac
 import os
 import posixpath
 
-from boto.compat import urllib, encodebytes
+from boto.compat import urllib, encodebytes, parse_qs_safe
 from boto.auth_handler import AuthHandler
 from boto.exception import BotoClientError
 
@@ -55,9 +55,11 @@ except ImportError:
 # by default.
 SIGV4_DETECT = [
     '.cn-',
-    # In eu-central we support both host styles for S3
+    # In eu-central and ap-northeast-2 we support both host styles for S3
     '.eu-central',
     '-eu-central',
+    '.ap-northeast-2',
+    '-ap-northeast-2'
 ]
 
 
@@ -321,6 +323,8 @@ class HmacAuthV4Handler(AuthHandler, HmacKeys):
         in the StringToSign.
         """
         host_header_value = self.host_header(self.host, http_request)
+        if http_request.headers.get('Host'):
+            host_header_value = http_request.headers['Host']
         headers_to_sign = {'Host': host_header_value}
         for name, value in http_request.headers.items():
             lname = name.lower()
@@ -571,7 +575,7 @@ class S3HmacAuthV4Handler(HmacAuthV4Handler, AuthHandler):
         # Because some quoting may have already been applied, let's back it out.
         unquoted = urllib.parse.unquote(path.path)
         # Requote, this time addressing all characters.
-        encoded = urllib.parse.quote(unquoted)
+        encoded = urllib.parse.quote(unquoted, safe='/~')
         return encoded
 
     def canonical_query_string(self, http_request):
@@ -686,7 +690,7 @@ class S3HmacAuthV4Handler(HmacAuthV4Handler, AuthHandler):
             modified_req.params = copy_params
 
         raw_qs = parsed_path.query
-        existing_qs = urllib.parse.parse_qs(
+        existing_qs = parse_qs_safe(
             raw_qs,
             keep_blank_values=True
         )
@@ -771,16 +775,15 @@ class S3HmacAuthV4Handler(HmacAuthV4Handler, AuthHandler):
                                     urllib.parse.urlencode(req.params))
 
 
-class QueryAuthHandler(AuthHandler):
+class STSAnonHandler(AuthHandler):
     """
     Provides pure query construction (no actual signing).
 
-    Mostly useful for STS' ``assume_role_with_web_identity``.
-
-    Does **NOT** escape query string values!
+    Used for making anonymous STS request for operations like
+    ``assume_role_with_web_identity``.
     """
 
-    capability = ['pure-query']
+    capability = ['sts-anon']
 
     def _escape_value(self, value):
         # This is changed from a previous version because this string is
@@ -803,13 +806,11 @@ class QueryAuthHandler(AuthHandler):
         qs = self._build_query_string(
             http_request.params
         )
-        boto.log.debug('query_string: %s' % qs)
-        headers['Content-Type'] = 'application/json; charset=UTF-8'
-        http_request.body = ''
-        # if this is a retried request, the qs from the previous try will
-        # already be there, we need to get rid of that and rebuild it
-        http_request.path = http_request.path.split('?')[0]
-        http_request.path = http_request.path + '?' + qs
+        boto.log.debug('query_string in body: %s' % qs)
+        headers['Content-Type'] = 'application/x-www-form-urlencoded'
+        # This will be  a POST so the query string should go into the body
+        # as opposed to being in the uri
+        http_request.body = qs
 
 
 class QuerySignatureHelper(HmacKeys):
@@ -879,8 +880,8 @@ class QuerySignatureV1AuthHandler(QuerySignatureHelper, AuthHandler):
     def _calc_signature(self, params, *args):
         boto.log.debug('using _calc_signature_1')
         hmac = self._get_hmac()
-        keys = params.keys()
-        keys.sort(cmp=lambda x, y: cmp(x.lower(), y.lower()))
+        keys = list(params.keys())
+        keys.sort(key=lambda x: x.lower())
         pairs = []
         for key in keys:
             hmac.update(key.encode('utf-8'))
